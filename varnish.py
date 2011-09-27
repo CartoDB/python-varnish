@@ -2,13 +2,7 @@
 Simple Python interface for the Varnish management port.
 """
 from telnetlib import Telnet
-from threading import Thread
 import logging
-
-logging.basicConfig(
-    level = logging.DEBUG,
-    format = '%(asctime)s %(levelname)s %(message)s',
-)
 
 class VarnishHandler(Telnet):
     def __init__(self, host_port_timeout):
@@ -18,8 +12,6 @@ class VarnishHandler(Telnet):
         # Eat the preamble ...
         self.read_until("Type 'quit' to close CLI session.\n\n")
 
-    def quit(self): self.close()
-        
     def fetch(self, command):
         """
         Run a command on the Varnish backend and return the result
@@ -102,53 +94,3 @@ class VarnishHandler(Telnet):
         for field, operator, arg in args:
             self.fetch('purge %s %s %s\n' % (field, operator, arg))[1]
 
-class ThreadedRunner(Thread):
-    """
-    Runs commands on a particular varnish server in a separate thread
-    """
-    def __init__(self, addr, *commands):
-        self.addr = addr
-        self.commands = commands
-        super(ThreadedRunner, self).__init__()
-        
-    def run(self):
-        handler = VarnishHandler(self.addr)
-        for cmd in self.commands:
-            if isinstance(cmd, tuple) and len(cmd)>1:
-                getattr(handler, cmd[0].replace('.','_'))(*cmd[1:])
-            else:
-                getattr(handler, cmd.replace('.','_'))()
-        handler.close()
-
-def run(addr, *commands):
-    """
-    Non-threaded batch command runner returning output results
-    """
-    results = []
-    handler = VarnishHandler(addr)
-    for cmd in commands:
-        if isinstance(cmd, tuple) and len(cmd)>1:
-            results.extend([getattr(handler, c[0].replace('.','_'))(*c[1:]) for c in cmd])
-        else:
-            results.append(getattr(handler, cmd.replace('.','_'))(*commands[1:]))
-            break
-    handler.close()
-    return results
-
-class VarnishManager(object):
-    def __init__(self, servers):
-        if not len(servers):
-            print 'WARNING: No servers found, please declare some'
-        self.servers = servers
-            
-    def run(self, *commands, **kwargs):
-        if kwargs.pop('threaded', False):
-            [ThreadedRunner(server, *commands).start() for server in self.servers]
-        else:                
-            return [run(server, *commands) for server in self.servers]
-
-    def help(self, *args): return run(self.servers[0], *('help',)+args)[0]
-
-    def close(self):
-        self.run('close', threaded=True)
-        self.servers = ()
